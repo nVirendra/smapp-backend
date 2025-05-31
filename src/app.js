@@ -8,6 +8,7 @@ const notificationRoutes = require('./routes/notification.routes');
 const streamRoutes = require('./routes/stream.routes.js');
 const NodeMediaServer = require('node-media-server');
 const listEndpoints = require('express-list-endpoints');
+//const RTMPStreamServer = require('./rtmp-server');
 
 
 
@@ -39,6 +40,11 @@ const nmsConfig = {
 // Start RTMP Server
 const nms = new NodeMediaServer(nmsConfig);
 nms.run();
+
+
+
+// Serve static files for HLS streams
+//app.use('/streams', express.static(path.join(__dirname, 'streams')));
 
 
 // Test Route
