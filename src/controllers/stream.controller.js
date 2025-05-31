@@ -390,114 +390,114 @@ const updateHLSPlaylist = async (streamKey, streamData) => {
 // 10. HLS SERVING ENDPOINTS
 // ============================================================================
 
-// Serve HLS playlist
-app.get('/api/streams/:streamKey/hls/playlist.m3u8', (req, res) => {
-    const { streamKey } = req.params;
-    const streamData = activeStreams.get(streamKey);
+// // Serve HLS playlist
+// app.get('/api/streams/:streamKey/hls/playlist.m3u8', (req, res) => {
+//     const { streamKey } = req.params;
+//     const streamData = activeStreams.get(streamKey);
     
-    if (!streamData) {
-        return res.status(404).json({ message: 'Stream not found' });
-    }
+//     if (!streamData) {
+//         return res.status(404).json({ message: 'Stream not found' });
+//     }
     
-    const playlistPath = path.join(streamData.hlsDir, 'playlist.m3u8');
+//     const playlistPath = path.join(streamData.hlsDir, 'playlist.m3u8');
     
-    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-    res.setHeader('Cache-Control', 'no-cache');
+//     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+//     res.setHeader('Access-Control-Allow-Origin', '*');
+//     res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
+//     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+//     res.setHeader('Cache-Control', 'no-cache');
     
-    res.sendFile(playlistPath);
-});
+//     res.sendFile(playlistPath);
+// });
 
-// Serve HLS segments
-app.get('/api/streams/:streamKey/hls/:segment', (req, res) => {
-    const { streamKey, segment } = req.params;
-    const streamData = activeStreams.get(streamKey);
+// // Serve HLS segments
+// app.get('/api/streams/:streamKey/hls/:segment', (req, res) => {
+//     const { streamKey, segment } = req.params;
+//     const streamData = activeStreams.get(streamKey);
     
-    if (!streamData) {
-        return res.status(404).json({ message: 'Stream not found' });
-    }
+//     if (!streamData) {
+//         return res.status(404).json({ message: 'Stream not found' });
+//     }
     
-    const segmentPath = path.join(streamData.hlsDir, segment);
+//     const segmentPath = path.join(streamData.hlsDir, segment);
     
-    res.setHeader('Content-Type', 'video/mp2t');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 'max-age=10');
+//     res.setHeader('Content-Type', 'video/mp2t');
+//     res.setHeader('Access-Control-Allow-Origin', '*');
+//     res.setHeader('Cache-Control', 'max-age=10');
     
-    res.sendFile(segmentPath);
-});
+//     res.sendFile(segmentPath);
+// });
 
 
-// 12. CLEANUP FUNCTIONS
-// ============================================================================
+// // 12. CLEANUP FUNCTIONS
+// // ============================================================================
 
-const cleanupStreamProcess = async (streamKey) => {
-    try {
-        // Remove from active streams
-        const streamData = activeStreams.get(streamKey);
-        if (streamData) {
-            // Cleanup files after some time
-            setTimeout(async () => {
-                try {
-                    await fs.remove(streamData.streamDir);
-                    console.log(`Cleaned up stream directory: ${streamData.streamDir}`);
-                } catch (error) {
-                    console.error('Cleanup error:', error);
-                }
-            }, 60000); // Wait 1 minute before cleanup
-        }
+// const cleanupStreamProcess = async (streamKey) => {
+//     try {
+//         // Remove from active streams
+//         const streamData = activeStreams.get(streamKey);
+//         if (streamData) {
+//             // Cleanup files after some time
+//             setTimeout(async () => {
+//                 try {
+//                     await fs.remove(streamData.streamDir);
+//                     console.log(`Cleaned up stream directory: ${streamData.streamDir}`);
+//                 } catch (error) {
+//                     console.error('Cleanup error:', error);
+//                 }
+//             }, 60000); // Wait 1 minute before cleanup
+//         }
         
-        // Remove process info
-        streamProcesses.delete(streamKey);
-        streamWriters.delete(streamKey);
+//         // Remove process info
+//         streamProcesses.delete(streamKey);
+//         streamWriters.delete(streamKey);
         
-        console.log(`Cleaned up stream process: ${streamKey}`);
+//         console.log(`Cleaned up stream process: ${streamKey}`);
         
-    } catch (error) {
-        console.error('Cleanup error:', error);
-    }
-};
+//     } catch (error) {
+//         console.error('Cleanup error:', error);
+//     }
+// };
 
-// ============================================================================
-// 13. WEBSOCKET FOR REAL-TIME UPDATES
-// ============================================================================
+// // ============================================================================
+// // 13. WEBSOCKET FOR REAL-TIME UPDATES
+// // ============================================================================
 
-const wss = new WebSocket.Server({ port: 8080 });
+// const wss = new WebSocket.Server({ port: 8080 });
 
-wss.on('connection', (ws) => {
-    console.log('WebSocket client connected');
+// wss.on('connection', (ws) => {
+//     console.log('WebSocket client connected');
     
-    ws.on('message', (message) => {
-        try {
-            const data = JSON.parse(message);
+//     ws.on('message', (message) => {
+//         try {
+//             const data = JSON.parse(message);
             
-            if (data.type === 'subscribe' && data.streamKey) {
-                ws.streamKey = data.streamKey;
-                console.log(`Client subscribed to stream: ${data.streamKey}`);
-            }
-        } catch (error) {
-            console.error('WebSocket message error:', error);
-        }
-    });
+//             if (data.type === 'subscribe' && data.streamKey) {
+//                 ws.streamKey = data.streamKey;
+//                 console.log(`Client subscribed to stream: ${data.streamKey}`);
+//             }
+//         } catch (error) {
+//             console.error('WebSocket message error:', error);
+//         }
+//     });
     
-    ws.on('close', () => {
-        console.log('WebSocket client disconnected');
-    });
-});
+//     ws.on('close', () => {
+//         console.log('WebSocket client disconnected');
+//     });
+// });
 
-// Broadcast stream updates
-const broadcastStreamUpdate = (streamKey, update) => {
-    wss.clients.forEach((client) => {
-        if (client.streamKey === streamKey && client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({
-                type: 'streamUpdate',
-                streamKey,
-                ...update
-            }));
-        }
-    });
-};
+// // Broadcast stream updates
+// const broadcastStreamUpdate = (streamKey, update) => {
+//     wss.clients.forEach((client) => {
+//         if (client.streamKey === streamKey && client.readyState === WebSocket.OPEN) {
+//             client.send(JSON.stringify({
+//                 type: 'streamUpdate',
+//                 streamKey,
+//                 ...update
+//             }));
+//         }
+//     });
+// };
 
 
 

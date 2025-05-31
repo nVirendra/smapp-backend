@@ -14,11 +14,8 @@ const authenticate = asyncHandler(async (req, res, next) => {
   const token = authHeader.split(' ')[1];
 
   try {
-    console.log('1:', 1);
     const decoded = jwt.verify(token, ENV.JWT_SECRET);
-    console.log('2:', 2, decoded.userId);
     const user = await User.findById(decoded.userId).select('-password');
-    console.log('3:', 3);
     if (!user) {
       res.status(401).json({ message: 'User  not found' });
       return;

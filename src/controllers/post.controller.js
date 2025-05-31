@@ -38,7 +38,6 @@ const createPost = async (req, res) => {
 
 const getFeedPosts = async (req, res) => {
   try {
-    console.log('Fetching feed posts for user:', req.user._id);
     const posts = await Post.find({
       $or: [{ privacy: 'public' }, { userId: req.user._id }],
     })
