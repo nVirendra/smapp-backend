@@ -5,6 +5,11 @@ const authRoutes = require('./routes/auth.routes');
 const postRoutes = require('./routes/post.routes');
 const userRoutes = require('./routes/user.routes');
 const notificationRoutes = require('./routes/notification.routes');
+const streamRoutes = require('./routes/stream.routes.js');
+const NodeMediaServer = require('node-media-server');
+const listEndpoints = require('express-list-endpoints');
+
+
 
 dotenv.config();
 
@@ -15,6 +20,27 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// RTMP Server Configuration
+const nmsConfig = {
+    rtmp: {
+        port: 1935,
+        chunk_size: 60000,
+        gop_cache: true,
+        ping: 30,
+        ping_timeout: 60
+    },
+    http: {
+        port: 8000,
+        mediaroot: './media',
+        allow_origin: '*'
+    }
+};
+
+// Start RTMP Server
+const nms = new NodeMediaServer(nmsConfig);
+nms.run();
+
+
 // Test Route
 app.get('/', (_req, res) => {
   res.status(200).send('API is running...');
@@ -24,5 +50,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/streams', streamRoutes);
+
+console.log(listEndpoints(app));
 
 module.exports = app;
