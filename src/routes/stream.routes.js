@@ -1,6 +1,6 @@
 const express = require('express');
 const {
-  createStream,startStream,getLiveStreams,getMytreams,getStreamByID,endStream
+  createStream,startStream,getLiveStreams,getMytreams,getStreamByID,endStream,chunkStream
 } = require('../controllers/stream.controller');
 const authenticate = require('../middlewares/auth.middleware');
 
@@ -12,6 +12,7 @@ router.get('/live', authenticate, getLiveStreams);
 router.get('/my-streams', authenticate, getMytreams);
 router.get('/:streamId', authenticate, getStreamByID);
 router.put('/:streamId/end', authenticate, endStream);
+router.post('/chunk', authenticate, chunkStream);
 
 // router.post('/:id/unfollow', unfollowUser);
 

@@ -168,4 +168,11 @@ try {
     }
 };
 
-module.exports = { createStream,startStream,getLiveStreams,getMytreams,getStreamByID,endStream };
+
+
+const chunkStream = async (req, res) => {
+  
+       
+};
+
+module.exports = { createStream,startStream,getLiveStreams,getMytreams,getStreamByID,endStream ,chunkStream};
