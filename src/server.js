@@ -22,5 +22,9 @@ const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
   server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
+    console.log(`RTMP server running on rtmp://localhost:1935/live`);
+    console.log(
+      `HLS streams available at http://localhost:8000/live/{stream_key}/index.m3u8`
+    );
   });
 });
