@@ -70,6 +70,9 @@ const rtmpConfig = {
 // Start RTMP Server
 const nms = new NodeMediaServer(rtmpConfig);
 
+//end start media server code
+nms.run();
+
 // Handle stream events
 nms.on('preConnect', (id, args) => {
   console.log(
@@ -188,8 +191,7 @@ function cleanupHLSFiles(streamKey) {
   }
 }
 
-//end start media server code
-nms.run();
+
 
 // Serve static files for HLS streams
 //app.use('/streams', express.static(path.join(__dirname, 'streams')));

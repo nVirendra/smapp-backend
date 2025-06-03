@@ -1,4 +1,8 @@
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
+const  {convertToHLS}  = require('../utils/ffmpeg-utils'); // create this file if needed
+
 
 const Stream = require('../models/Stream');
 
@@ -171,59 +175,79 @@ try {
 
 
 const chunkStream = async (req, res) => {
-  
-       try {
-        const { streamKey, timestamp } = req.body;
+    try {
+        const streamKey = req.body?.streamKey;
+        const timestamp = req.body?.timestamp;
         const videoChunk = req.file;
-        
+
+        if (!req.body) {
+            return res.status(400).json({
+                success: false,
+                message: 'Form data not parsed'
+            });
+        }
+
         if (!videoChunk) {
             return res.status(400).json({
                 success: false,
                 message: 'No video chunk provided'
             });
         }
-        
+
         if (!streamKey) {
             return res.status(400).json({
                 success: false,
                 message: 'Stream key is required'
             });
         }
-        
-        // Get stream data
-        const streamData = activeStreams.get(streamKey);
+
+        const streamData = await Stream.findOne({streamKey:streamKey});
+
         if (!streamData) {
             return res.status(404).json({
                 success: false,
                 message: 'Stream not found'
             });
         }
-        
-        // Verify stream ownership
-        if (streamData.userId !== req.user.id) {
+
+        if (streamData.user.toString() !== req.user.id) {
             return res.status(403).json({
                 success: false,
                 message: 'Unauthorized access to stream'
             });
         }
-        
-        // Check if stream is live
-        if (!streamData.isLive) {
+
+        if (streamData.status !=='live') {
             return res.status(400).json({
                 success: false,
                 message: 'Stream is not live'
             });
         }
-        
-        console.log(`Received chunk for stream ${streamKey}, size: ${videoChunk.size} bytes`);
-        
-        // Update chunk count
+
+        console.log(`✅ Received chunk for stream ${streamKey}, size: ${videoChunk.size} bytes`);
+
+     
+
+        const streamFolder = path.join(__dirname, '../media', streamKey);
+        if (!fs.existsSync(streamFolder)) {
+            fs.mkdirSync(streamFolder, { recursive: true });
+        }
+
+        const chunkFileName = `chunk-${Date.now()}.webm`;
+       const chunkFilePath = path.join(streamFolder, chunkFileName);
+
+       fs.writeFileSync(chunkFilePath, videoChunk.buffer);
+
+       // Start conversion
+       convertToHLS(chunkFilePath, streamFolder, streamKey);
+
+
+
+
         streamData.chunkCount++;
         streamData.lastChunkAt = new Date();
-        
-        // Process the video chunk
-        await processVideoChunk(streamKey, videoChunk, streamData);
-        
+
+
         res.json({
             success: true,
             message: 'Chunk processed successfully',
@@ -231,7 +255,7 @@ const chunkStream = async (req, res) => {
             chunkSize: videoChunk.size,
             timestamp: new Date().toISOString()
         });
-        
+
     } catch (error) {
         console.error('Chunk processing error:', error);
         res.status(500).json({
@@ -241,6 +265,8 @@ const chunkStream = async (req, res) => {
         });
     }
 };
+
+
 
 
 // 8. VIDEO CHUNK PROCESSING FUNCTION
