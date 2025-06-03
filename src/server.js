@@ -3,6 +3,7 @@ const { Server } = require('socket.io');
 const app = require('./app');
 const { initNotificationSocket } = require('./sockets/notification.socket');
 const connectDB = require('./config/database');
+const startNodeMediaServer = require('./rtmp-server');
 
 const server = http.createServer(app);
 
@@ -28,3 +29,5 @@ connectDB().then(() => {
     );
   });
 });
+
+startNodeMediaServer();
