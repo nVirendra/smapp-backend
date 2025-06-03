@@ -29,6 +29,8 @@ const initNotificationSocket = (io) => {
         const ffmpegPath = 'D:\\dev\\ffmpeg-20250529-fb\\bin\\ffmpeg.exe'; // replace with your actual path
 
         const ffmpeg = spawn(ffmpegPath, [
+          '-f',
+          'webm',
           '-i',
           'pipe:0',
           '-c:v',
