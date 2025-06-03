@@ -35,7 +35,19 @@ if (!fs.existsSync(mediaDir)) {
 }
 
 // Serve HLS files statically
-app.use('/media', express.static(path.join(__dirname, 'media')));
+// app.use('/media', express.static(path.join(__dirname, 'media')));
+// Add this to app.js after the existing media server code
+app.use('/media', express.static(path.join(__dirname, 'media'), {
+  setHeaders: (res, path) => {
+    if (path.endsWith('.m3u8')) {
+      res.set('Content-Type', 'application/vnd.apple.mpegurl');
+      res.set('Cache-Control', 'no-cache');
+    } else if (path.endsWith('.ts')) {
+      res.set('Content-Type', 'video/mp2t');
+      res.set('Cache-Control', 'max-age=10');
+    }
+  }
+}));
 
 // RTMP Server Configuration
 const rtmpConfig = {

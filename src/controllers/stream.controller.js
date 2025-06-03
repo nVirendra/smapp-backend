@@ -1,10 +1,12 @@
+const Stream = require('../models/Stream');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
-const  {convertToHLS}  = require('../utils/ffmpeg-utils'); // create this file if needed
+// const  {convertToHLS}  = require('../utils/ffmpeg-utils'); // create this file if needed
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
-
-const Stream = require('../models/Stream');
 
 
 const generateStreamKey = () => {
@@ -173,6 +175,8 @@ try {
 };
 
 
+// Store active FFmpeg processes
+global.hlsProcesses = global.hlsProcesses || new Map();
 
 const chunkStream = async (req, res) => {
     try {
@@ -201,7 +205,7 @@ const chunkStream = async (req, res) => {
             });
         }
 
-        const streamData = await Stream.findOne({streamKey:streamKey});
+        const streamData = await Stream.findOne({streamKey: streamKey});
 
         if (!streamData) {
             return res.status(404).json({
@@ -217,7 +221,7 @@ const chunkStream = async (req, res) => {
             });
         }
 
-        if (streamData.status !=='live') {
+        if (streamData.status !== 'live') {
             return res.status(400).json({
                 success: false,
                 message: 'Stream is not live'
@@ -226,32 +230,36 @@ const chunkStream = async (req, res) => {
 
         console.log(`✅ Received chunk for stream ${streamKey}, size: ${videoChunk.size} bytes`);
 
-     
-
+        // Create stream folder
         const streamFolder = path.join(__dirname, '../media', streamKey);
         if (!fs.existsSync(streamFolder)) {
             fs.mkdirSync(streamFolder, { recursive: true });
         }
 
-        const chunkFileName = `chunk-${Date.now()}.webm`;
-       const chunkFilePath = path.join(streamFolder, chunkFileName);
+        // Save chunk with sequential naming
+        const chunkNumber = streamData.chunkCount || 0;
+        const chunkFileName = `chunk-${String(chunkNumber).padStart(6, '0')}.webm`;
+        const chunkFilePath = path.join(streamFolder, chunkFileName);
 
-       fs.writeFileSync(chunkFilePath, videoChunk.buffer);
+        fs.writeFileSync(chunkFilePath, videoChunk.buffer);
 
-       // Start conversion
-       convertToHLS(chunkFilePath, streamFolder, streamKey);
+        // Initialize HLS conversion if this is the first chunk
+        if (chunkNumber === 0) {
+            await initializeHLSStream(streamKey, streamFolder);
+        }
 
+        // Process the chunk for HLS
+        await processChunkForHLS(chunkFilePath, streamFolder, streamKey, chunkNumber);
 
-
-
-        streamData.chunkCount++;
+        // Update stream data
+        streamData.chunkCount = chunkNumber + 1;
         streamData.lastChunkAt = new Date();
-
+        await streamData.save();
 
         res.json({
             success: true,
             message: 'Chunk processed successfully',
-            chunkNumber: streamData.chunkCount,
+            chunkNumber: chunkNumber + 1,
             chunkSize: videoChunk.size,
             timestamp: new Date().toISOString()
         });
@@ -269,262 +277,120 @@ const chunkStream = async (req, res) => {
 
 
 
-// 8. VIDEO CHUNK PROCESSING FUNCTION
-// ============================================================================
-
-const processVideoChunk = async (streamKey, videoChunk, streamData) => {
-    try {
-        const { hlsDir } = streamData;
-        const chunkFilename = `chunk_${streamData.chunkCount}_${Date.now()}.webm`;
-        const chunkPath = path.join(hlsDir, chunkFilename);
-        
-        // Save chunk to disk
-        await fs.writeFile(chunkPath, videoChunk.buffer);
-        
-        // Initialize FFmpeg process for this stream if not exists
-        if (!streamProcesses.has(streamKey)) {
-            await initializeStreamProcess(streamKey, streamData);
-        }
-        
-        // Convert WebM chunk to TS segment
-        await convertChunkToHLS(streamKey, chunkPath, streamData);
-        
-        // Update playlist
-        await updateHLSPlaylist(streamKey, streamData);
-        
-        // Clean up old chunk file
-        setTimeout(() => {
-            fs.unlink(chunkPath).catch(console.error);
-        }, 10000); // Delete after 10 seconds
-        
-    } catch (error) {
-        console.error('Video chunk processing error:', error);
-        throw error;
-    }
-};
-
-// 9. HLS STREAM PROCESSING
-// ============================================================================
-
-const initializeStreamProcess = async (streamKey, streamData) => {
-    const { hlsDir } = streamData;
+// Initialize HLS stream
+async function initializeHLSStream(streamKey, streamFolder) {
+    const playlistPath = path.join(streamFolder, 'index.m3u8');
     
-    try {
-        // Create initial playlist
-        const playlistPath = path.join(hlsDir, 'playlist.m3u8');
-        const initialPlaylist = `#EXTM3U
+    // Create initial playlist
+    const initialPlaylist = `#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-TARGETDURATION:10
 #EXT-X-MEDIA-SEQUENCE:0
 #EXT-X-PLAYLIST-TYPE:EVENT
 `;
-        
-        await fs.writeFile(playlistPath, initialPlaylist);
-        
-        // Store process info
-        streamProcesses.set(streamKey, {
-            segmentIndex: 0,
-            playlistPath,
-            segments: []
-        });
-        
-        console.log(`Initialized HLS process for stream: ${streamKey}`);
-        
-    } catch (error) {
-        console.error('Failed to initialize stream process:', error);
-        throw error;
-    }
-};
+    
+    fs.writeFileSync(playlistPath, initialPlaylist);
+    console.log(`📝 Created initial HLS playlist for ${streamKey}`);
+}
 
-const convertChunkToHLS = async (streamKey, chunkPath, streamData) => {
+// Process individual chunk for HLS
+async function processChunkForHLS(chunkPath, streamFolder, streamKey, chunkNumber) {
     return new Promise((resolve, reject) => {
-        const processInfo = streamProcesses.get(streamKey);
-        const segmentIndex = processInfo.segmentIndex++;
-        const segmentFilename = `segment_${segmentIndex}.ts`;
-        const segmentPath = path.join(streamData.hlsDir, segmentFilename);
-        
+        const segmentName = `segment-${String(chunkNumber).padStart(6, '0')}.ts`;
+        const segmentPath = path.join(streamFolder, segmentName);
+        const playlistPath = path.join(streamFolder, 'index.m3u8');
+
+        // Convert WebM chunk to TS segment
         ffmpeg(chunkPath)
-            .videoCodec('libx264')
-            .audioCodec('aac')
-            .format('mpegts')
             .outputOptions([
-                '-preset fast',
-                '-tune zerolatency',
-                '-g 30',
-                '-sc_threshold 0',
-                '-f mpegts'
+                '-c:v libx264',
+                '-c:a aac',
+                '-ac 2',
+                '-ar 44100',
+                '-f mpegts',
+                '-bsf:v h264_mp4toannexb',
+                '-preset ultrafast',
+                '-tune zerolatency'
             ])
             .output(segmentPath)
+            .on('start', (commandLine) => {
+                console.log(`🔄 Converting chunk ${chunkNumber}: ${commandLine}`);
+            })
             .on('end', () => {
-                console.log(`Converted chunk to segment: ${segmentFilename}`);
+                console.log(`✅ Converted chunk ${chunkNumber} to TS segment`);
                 
-                // Add segment to process info
-                processInfo.segments.push({
-                    filename: segmentFilename,
-                    path: segmentPath,
-                    index: segmentIndex,
-                    duration: 2.0, // Approximate duration
-                    timestamp: Date.now()
-                });
+                // Update playlist
+                updateHLSPlaylist(playlistPath, segmentName, chunkNumber);
                 
-                // Keep only last 10 segments
-                if (processInfo.segments.length > 10) {
-                    const oldSegment = processInfo.segments.shift();
-                    fs.unlink(oldSegment.path).catch(console.error);
-                }
+                // Clean up original chunk
+                fs.unlinkSync(chunkPath);
                 
                 resolve();
             })
             .on('error', (err) => {
-                console.error('FFmpeg conversion error:', err);
+                console.error(`❌ Error converting chunk ${chunkNumber}:`, err);
                 reject(err);
             })
             .run();
     });
-};
+}
 
-const updateHLSPlaylist = async (streamKey, streamData) => {
+// Update HLS playlist
+function updateHLSPlaylist(playlistPath, segmentName, chunkNumber) {
     try {
-        const processInfo = streamProcesses.get(streamKey);
-        const { playlistPath, segments } = processInfo;
+        let playlist = fs.readFileSync(playlistPath, 'utf8');
         
-        // Generate playlist content
-        let playlist = `#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-TARGETDURATION:10
-#EXT-X-MEDIA-SEQUENCE:${Math.max(0, processInfo.segmentIndex - segments.length)}
-`;
+        // Add new segment to playlist
+        const segmentDuration = 4.0; // Assume 4 second segments
+        const newSegmentEntry = `#EXTINF:${segmentDuration},\n${segmentName}\n`;
         
-        // Add segments
-        segments.forEach(segment => {
-            playlist += `#EXTINF:${segment.duration.toFixed(1)},\n`;
-            playlist += `${segment.filename}\n`;
-        });
+        // Update media sequence number
+        const mediaSeqRegex = /#EXT-X-MEDIA-SEQUENCE:(\d+)/;
+        const currentSeq = playlist.match(mediaSeqRegex);
+        if (currentSeq) {
+            playlist = playlist.replace(mediaSeqRegex, `#EXT-X-MEDIA-SEQUENCE:${chunkNumber}`);
+        }
         
-        // Write updated playlist
-        await fs.writeFile(playlistPath, playlist);
+        // Add new segment before the end
+        if (playlist.includes('#EXT-X-ENDLIST')) {
+            playlist = playlist.replace('#EXT-X-ENDLIST', newSegmentEntry + '#EXT-X-ENDLIST');
+        } else {
+            playlist += newSegmentEntry;
+        }
         
-        console.log(`Updated HLS playlist for stream: ${streamKey}, segments: ${segments.length}`);
+        // Keep only last 10 segments in playlist (sliding window)
+        const lines = playlist.split('\n');
+        const segmentLines = [];
+        const otherLines = [];
+        
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].startsWith('#EXTINF:')) {
+                segmentLines.push(lines[i], lines[i + 1]);
+                i++; // Skip next line as it's the segment name
+            } else if (!lines[i].includes('.ts')) {
+                otherLines.push(lines[i]);
+            }
+        }
+        
+        // Keep only last 10 segments
+        const maxSegments = 10;
+        const recentSegments = segmentLines.slice(-maxSegments * 2);
+        
+        // Rebuild playlist
+        const headerLines = otherLines.filter(line => 
+            line.startsWith('#') && !line.includes('#EXT-X-ENDLIST')
+        );
+        
+        playlist = headerLines.join('\n') + '\n' + recentSegments.join('\n');
+        if (!playlist.endsWith('\n')) playlist += '\n';
+        
+        fs.writeFileSync(playlistPath, playlist);
+        console.log(`📝 Updated HLS playlist with segment ${chunkNumber}`);
         
     } catch (error) {
-        console.error('Failed to update HLS playlist:', error);
-        throw error;
+        console.error('Error updating HLS playlist:', error);
     }
-};
-
-// ============================================================================
-// 10. HLS SERVING ENDPOINTS
-// ============================================================================
-
-// // Serve HLS playlist
-// app.get('/api/streams/:streamKey/hls/playlist.m3u8', (req, res) => {
-//     const { streamKey } = req.params;
-//     const streamData = activeStreams.get(streamKey);
-    
-//     if (!streamData) {
-//         return res.status(404).json({ message: 'Stream not found' });
-//     }
-    
-//     const playlistPath = path.join(streamData.hlsDir, 'playlist.m3u8');
-    
-//     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-//     res.setHeader('Access-Control-Allow-Origin', '*');
-//     res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
-//     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-//     res.setHeader('Cache-Control', 'no-cache');
-    
-//     res.sendFile(playlistPath);
-// });
-
-// // Serve HLS segments
-// app.get('/api/streams/:streamKey/hls/:segment', (req, res) => {
-//     const { streamKey, segment } = req.params;
-//     const streamData = activeStreams.get(streamKey);
-    
-//     if (!streamData) {
-//         return res.status(404).json({ message: 'Stream not found' });
-//     }
-    
-//     const segmentPath = path.join(streamData.hlsDir, segment);
-    
-//     res.setHeader('Content-Type', 'video/mp2t');
-//     res.setHeader('Access-Control-Allow-Origin', '*');
-//     res.setHeader('Cache-Control', 'max-age=10');
-    
-//     res.sendFile(segmentPath);
-// });
-
-
-// // 12. CLEANUP FUNCTIONS
-// // ============================================================================
-
-// const cleanupStreamProcess = async (streamKey) => {
-//     try {
-//         // Remove from active streams
-//         const streamData = activeStreams.get(streamKey);
-//         if (streamData) {
-//             // Cleanup files after some time
-//             setTimeout(async () => {
-//                 try {
-//                     await fs.remove(streamData.streamDir);
-//                     console.log(`Cleaned up stream directory: ${streamData.streamDir}`);
-//                 } catch (error) {
-//                     console.error('Cleanup error:', error);
-//                 }
-//             }, 60000); // Wait 1 minute before cleanup
-//         }
-        
-//         // Remove process info
-//         streamProcesses.delete(streamKey);
-//         streamWriters.delete(streamKey);
-        
-//         console.log(`Cleaned up stream process: ${streamKey}`);
-        
-//     } catch (error) {
-//         console.error('Cleanup error:', error);
-//     }
-// };
-
-// // ============================================================================
-// // 13. WEBSOCKET FOR REAL-TIME UPDATES
-// // ============================================================================
-
-// const wss = new WebSocket.Server({ port: 8080 });
-
-// wss.on('connection', (ws) => {
-//     console.log('WebSocket client connected');
-    
-//     ws.on('message', (message) => {
-//         try {
-//             const data = JSON.parse(message);
-            
-//             if (data.type === 'subscribe' && data.streamKey) {
-//                 ws.streamKey = data.streamKey;
-//                 console.log(`Client subscribed to stream: ${data.streamKey}`);
-//             }
-//         } catch (error) {
-//             console.error('WebSocket message error:', error);
-//         }
-//     });
-    
-//     ws.on('close', () => {
-//         console.log('WebSocket client disconnected');
-//     });
-// });
-
-// // Broadcast stream updates
-// const broadcastStreamUpdate = (streamKey, update) => {
-//     wss.clients.forEach((client) => {
-//         if (client.streamKey === streamKey && client.readyState === WebSocket.OPEN) {
-//             client.send(JSON.stringify({
-//                 type: 'streamUpdate',
-//                 streamKey,
-//                 ...update
-//             }));
-//         }
-//     });
-// };
-
+}
 
 
 module.exports = { createStream,startStream,getLiveStreams,getMytreams,getStreamByID,endStream ,chunkStream};
