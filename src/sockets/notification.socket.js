@@ -1,3 +1,8 @@
+const { spawn } = require('child_process');
+const fs = require('fs');
+const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+const ffmpegPath = ffmpegInstaller.path;
+
 const {
   addUserSocket,
   removeUserSocket,
@@ -5,8 +10,7 @@ const {
   getUserSocket,
 } = require('../utils/socketStore');
 
-const { spawn } = require('child_process');
-const activeFFmpegStreams = new Map(); // streamKey => ffmpeg process
+const activeFFmpegStreams = new Map(); // streamKey => { ffmpeg, chunkQueue }
 
 const initNotificationSocket = (io) => {
   io.on('connection', (socket) => {
@@ -22,48 +26,58 @@ const initNotificationSocket = (io) => {
     socket.on('stream-chunk', ({ streamKey, chunk }) => {
       if (!streamKey || !chunk) return;
 
-      // Start FFmpeg process if not already running for this stream
-      if (!activeFFmpegStreams.has(streamKey)) {
+      const buffer = Buffer.isBuffer(chunk)
+        ? chunk
+        : Buffer.from(new Uint8Array(chunk));
+
+        if (!fs.existsSync('./debug')) fs.mkdirSync('./debug');
+        fs.writeFileSync(`./debug/${streamKey}-first-chunk.webm`, buffer);
+
+
+      let streamObj = activeFFmpegStreams.get(streamKey);
+
+      // 🔁 If FFmpeg not yet started for this streamKey
+      if (!streamObj) {
         console.log(`🎥 Starting new FFmpeg for streamKey: ${streamKey}`);
 
-        const ffmpegPath = 'D:\\dev\\ffmpeg-20250529-fb\\bin\\ffmpeg.exe'; // replace with your actual path
+        const chunkQueue = [];
 
         const ffmpeg = spawn(ffmpegPath, [
-          '-f',
-          'webm',
-          '-i',
-          'pipe:0',
-          '-c:v',
-          'libx264',
-          '-preset',
-          'veryfast',
-          '-tune',
-          'zerolatency',
-          '-c:a',
-          'aac',
-          '-ar',
-          '44100',
-          '-f',
-          'flv',
+          '-f', 'webm',
+          '-analyzeduration', '0',
+          '-probesize', '32',
+          '-i', 'pipe:0',
+          '-c:v', 'libx264',
+          '-preset', 'veryfast',
+          '-tune', 'zerolatency',
+          '-c:a', 'aac',
+          '-ar', '44100',
+          '-f', 'flv',
           `rtmp://localhost:1935/live/${streamKey}`,
         ]);
+
+        ffmpeg.stdin.on('error', (err) => {
+          console.error(`🔥 FFmpeg stdin error for ${streamKey}:`, err.message);
+        });
 
         ffmpeg.stderr.on('data', (data) => {
           console.log(`FFmpeg [${streamKey}]:`, data.toString());
         });
 
-        ffmpeg.on('close', (code) => {
-          console.log(`🛑 FFmpeg for ${streamKey} exited with code ${code}`);
+        ffmpeg.on('close', (code, signal) => {
+          console.log(`🛑 FFmpeg closed. Exit code: ${code}, Signal: ${signal}`);
           activeFFmpegStreams.delete(streamKey);
         });
 
-        activeFFmpegStreams.set(streamKey, ffmpeg);
+        streamObj = { ffmpeg, chunkQueue };
+        activeFFmpegStreams.set(streamKey, streamObj);
       }
 
-      // Write video chunk to FFmpeg stdin
-      const ffmpeg = activeFFmpegStreams.get(streamKey);
-      if (ffmpeg && ffmpeg.stdin.writable) {
-        ffmpeg.stdin.write(Buffer.from(chunk));
+      // ✅ Write to stdin directly or queue if temporarily blocked
+      if (streamObj.ffmpeg.stdin.writable) {
+        streamObj.ffmpeg.stdin.write(buffer);
+      } else {
+        streamObj.chunkQueue.push(buffer);
       }
     });
 
@@ -74,17 +88,6 @@ const initNotificationSocket = (io) => {
         console.log(`🔴 ${userId} disconnected`);
         logOnlineUsers();
       }
-
-      // Stop all ffmpeg processes for the disconnected socket
-      activeFFmpegStreams.forEach((ffmpeg, streamKey) => {
-        try {
-          ffmpeg.stdin.end();
-          ffmpeg.kill('SIGINT');
-          activeFFmpegStreams.delete(streamKey);
-        } catch (err) {
-          console.warn(`Error stopping FFmpeg for ${streamKey}:`, err);
-        }
-      });
     });
   });
 };

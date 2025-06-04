@@ -15,6 +15,7 @@ const io = new Server(server, {
   },
 });
 
+startNodeMediaServer();
 initNotificationSocket(io);
 module.exports = { io };
 
@@ -30,4 +31,4 @@ connectDB().then(() => {
   });
 });
 
-startNodeMediaServer();
+

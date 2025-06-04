@@ -1,4 +1,14 @@
 const NodeMediaServer = require('node-media-server');
+const fs = require('fs');
+const path = require('path');
+
+
+// ✅ Ensure ./media/live directory exists
+const baseDir = path.join(__dirname, 'media', 'live');
+if (!fs.existsSync(baseDir)) {
+  fs.mkdirSync(baseDir, { recursive: true });
+  console.log('📁 Created directory:', baseDir);
+}
 
 const config = {
   rtmp: {
@@ -14,7 +24,7 @@ const config = {
     mediaroot: './media',
   },
   trans: {
-    ffmpeg: 'D:/dev/ffmpeg-20250529-fb/bin/ffmpeg.exe',
+    ffmpeg: 'D:\\emilo\\ffmpeg-20250529-fb\\bin\\ffmpeg.exe',
     tasks: [
       {
         app: 'live',
@@ -27,6 +37,20 @@ const config = {
 
 const startNodeMediaServer = () => {
   const nms = new NodeMediaServer(config);
+   console.log('here is');
+   nms.on('postPublish', (id, streamPath, args) => {
+  if (!streamPath || typeof streamPath !== 'string') {
+    console.warn('⚠️ streamPath is undefined or invalid:', streamPath);
+    return;
+  }
+
+  const streamKey = streamPath.split('/').pop();
+  console.log(`✅ Stream is live: http://localhost:8000/live/${streamKey}/index.m3u8`);
+});
+
+
+  
+
   nms.run();
   console.log('🎥 RTMP + HLS media server is running...');
 };
