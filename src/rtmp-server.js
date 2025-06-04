@@ -1,14 +1,24 @@
 const NodeMediaServer = require('node-media-server');
 const fs = require('fs');
 const path = require('path');
+const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+const ffmpegPath = ffmpegInstaller.path;
 
 
-// ✅ Ensure ./media/live directory exists
-const baseDir = path.join(__dirname, 'media', 'live');
-if (!fs.existsSync(baseDir)) {
-  fs.mkdirSync(baseDir, { recursive: true });
-  console.log('📁 Created directory:', baseDir);
+const mediaDir = path.resolve(__dirname, 'media');
+const liveDir = path.resolve(mediaDir, 'live');
+
+// ✅ Ensure directories exist
+if (!fs.existsSync(mediaDir)) {
+  fs.mkdirSync(mediaDir, { recursive: true });
+  console.log('✅ Created media directory:', mediaDir);
 }
+
+if (!fs.existsSync(liveDir)) {
+  fs.mkdirSync(liveDir, { recursive: true });
+  console.log('✅ Created live directory:', liveDir);
+}
+
 
 const config = {
   rtmp: {
@@ -21,10 +31,10 @@ const config = {
   http: {
     port: 8000,
     allow_origin: '*',
-    mediaroot: './media',
+    mediaroot: mediaDir,
   },
   trans: {
-    ffmpeg: 'D:\\emilo\\ffmpeg-20250529-fb\\bin\\ffmpeg.exe',
+    ffmpeg: ffmpegPath,
     tasks: [
       {
         app: 'live',
@@ -43,7 +53,7 @@ const startNodeMediaServer = () => {
     console.warn('⚠️ streamPath is undefined or invalid:', streamPath);
     return;
   }
-
+  
   const streamKey = streamPath.split('/').pop();
   console.log(`✅ Stream is live: http://localhost:8000/live/${streamKey}/index.m3u8`);
 });
