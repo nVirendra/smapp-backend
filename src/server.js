@@ -1,3 +1,5 @@
+const express = require('express');
+const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
 const app = require('./app');
@@ -14,6 +16,10 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+
+
+
+app.use('/hls', express.static(path.join(__dirname, 'media/live')));
 
 startNodeMediaServer();
 initNotificationSocket(io);
